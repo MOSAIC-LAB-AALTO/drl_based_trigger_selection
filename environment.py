@@ -10,6 +10,9 @@ from mec import MEC
 from c_vnf import VNF
 import pickle
 import math
+import networkx as nx
+import os
+import matplotlib.pyplot as plt
 
 
 class ENV:
@@ -38,6 +41,8 @@ class ENV:
         self.mec = {}
         self.vnfs = {}
         self.initial_state = []
+        self.graph = nx.Graph()
+        self.w = {}
 
     def view_infrastructure(self):
         """
@@ -121,8 +126,14 @@ class ENV:
         """
 
         for i in range(self.nb_mec):
-            self.mec[i] = MEC(i, randint(self.min_cpu, self.max_cpu), randint(self.min_ram, self.max_ram),
-                              randint(self.min_disk, self.max_disk))
+            cpu = randint(self.min_cpu, self.max_cpu)
+            ram = randint(self.min_ram, self.max_ram)
+            disk = randint(self.min_disk, self.max_disk)
+            self.mec[i] = MEC(i, cpu, ram, disk)
+            self.graph.add_node("MEC-{}".format(i), color='blue', style='filled', fillcolor='blue', label=(cpu, ram, disk), ram=ram,
+                                disk=disk)
+            print(plt.cm.Purples.__dict__)
+            self.graph.add_node("MEC-CPU-{}".format(i), color='#A0CBE2')
 
     def generate_vnfs(self):
         """
@@ -138,6 +149,9 @@ class ENV:
                         self.mec[mec].disk_availability(disk):
                     self.vnfs[i] = VNF(vnf_name=i, ethnicity=str(mec), cpu=cpu, ram=ram, disk=disk)
                     self.mec[mec].set_member(i)
+                    self.graph.add_node("VNF-{}".format(i), color='red', style='filled', fillcolor='red',
+                                        label=(cpu, ram))
+                    self.graph.add_edge("VNF-{}".format(i), "MEC-{}".format(mec), style='dashed')
                     i += 1
 
     def get_rat(self, mec_id):
@@ -164,11 +178,15 @@ class ENV:
         state = []
         for i in range(self.nb_mec):
             mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage = self.get_rat(i)
+            self.graph.nodes(data=True)['MEC-{}'.format(i)]['label'] = (mec_cpu_percentage, mec_ram_percentage,
+                                                                        mec_disk_percentage)
             state.extend([mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage])
             for j in range(self.nb_vnfs):
                 for k in range(len(self.mec[i].get_member())):
                     if self.vnfs[j].vnf_name == self.mec[i].get_member()[k]:
                         vnf_cpu_percentage, vnf_ram_percentage = self.get_sct(self.vnfs[j].vnf_name)
+                        self.graph.nodes(data=True)['VNF-{}'.format(j)]['label'] = (vnf_cpu_percentage,
+                                                                                    vnf_ram_percentage)
                         state.extend([vnf_cpu_percentage, vnf_ram_percentage])
         if initial_state:
             if not self.initial_state:
@@ -208,12 +226,16 @@ class ENV:
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].cpu += self.vnfs[vnf_id].cpu
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].ram += self.vnfs[vnf_id].ram
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].disk += self.vnfs[vnf_id].disk
+                self.graph.remove_node('VNF-{}'.format(vnf_id))
 
                 # Addition of the container's details to the destination MEC
                 self.mec[mec_dest_id].set_member(vnf_id)
 
                 # Updating VNF ethnicity
                 self.vnfs[vnf_id].set_ethnicity(mec_dest_id)
+                self.graph.add_node("VNF-{}".format(vnf_id), color='red', style='filled', fillcolor='red',
+                                    label=(0, 0))
+                self.graph.add_edge("VNF-{}".format(vnf_id), "MEC-{}".format(mec_dest_id), style='dashed')
 
                 # Migration time based on the disk size
                 migration_time = self.vnfs[vnf_id].disk / 1000
@@ -361,6 +383,12 @@ class ENV:
             operation_success, action_time = self.scale_down(vnf_id, set_of_actions[action])
         return self.get_state(), self.reward(action_time), False, False
 
+    def draw_graph(self, image):
+        nx.drawing.nx_agraph.write_dot(self.graph, "%s.dot"%(image))
+        cmd_ = "neato -Tpng -Gstart=rand -Goverlap=scale -Gsplines=true -Nshape=circle -Ncolor=red  -Gsep=.7 " \
+               "%s.dot > %s.png" % (image, image)
+        os.system(cmd_)
+
     def save_topology(self, file_name):
         """
         :param file_name:
@@ -398,5 +426,3 @@ class ENV:
         self.max_c_disk = my_data[13]
         self.mec = my_data[14]
         self.vnfs = my_data[15]
-
-

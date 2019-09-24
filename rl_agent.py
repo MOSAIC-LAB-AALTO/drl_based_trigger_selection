@@ -90,7 +90,7 @@ def orchestration():
             state = new_state
 
             # If done (if we're dead) : finish episode
-            if done == True:
+            if done:
                 break
 
         # Reduce epsilon (because we need less and less exploration)
