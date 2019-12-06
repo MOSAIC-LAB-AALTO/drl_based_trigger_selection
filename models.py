@@ -13,6 +13,7 @@ import os
 
 
 class GenericNetwork(nn.Module):
+
     def __init__(self, state_dim, action_dim, hidden_layer=400, learning_rate=5e-4, name='generic', chkpt_dir=''):
         super(GenericNetwork, self).__init__()
         self.checkpoint_file = os.path.join(chkpt_dir, name)
@@ -29,12 +30,21 @@ class GenericNetwork(nn.Module):
         # self.init_weights()
 
     def init_weights(self):
+        """
+        Used to initialize weights
+        :return: None
+        """
         for m in self.modules():
             if type(m) is torch.nn.Linear:
                 torch.nn.init.uniform_(m.weight)
                 torch.nn.init.zeros_(m.bias)
 
     def forward(self, state):
+        """
+        Forward pass through the neural network
+        :param state:
+        :return: Q(s, a) or Q(s(t+1), a')
+        """
         # x = torch.Tensor(state).to(self.device)
         x = F.relu(self.fc1(state))
         x = F.relu(self.fc2(x))
@@ -42,50 +52,18 @@ class GenericNetwork(nn.Module):
         return x
 
     def save_checkpoint(self):
+        """
+        Used to save model's weights
+        :return:
+        """
         print('... saving checkpoint ...')
         torch.save(self.state_dict(), self.checkpoint_file)
 
     def load_checkpoint(self):
-        print('... loading checkpoint ...')
-        self.load_state_dict(torch.load(self.checkpoint_file))
-
-
-class Policy(torch.nn.Module):
-    def __init__(self, state_space, action_space, hidden_layer=256, learning_rate=1e-5, name='generic', chkpt_dir=''):
-        super().__init__()
-        self.state_space = state_space
-        self.action_space = action_space
-        self.hidden = hidden_layer
-        self.checkpoint_file = os.path.join(chkpt_dir, name)
-        self.fc1 = torch.nn.Linear(state_space, self.hidden)
-        self.fc2 = torch.nn.Linear(self.hidden, self.hidden)
-        self.fc_pi = torch.nn.Linear(self.hidden, action_space)
-        self.fc_value = torch.nn.Linear(self.hidden, 1)
-        # self.init_weights()
-
-        self.optimizer = optim.Adam(self.parameters(), lr=learning_rate)
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.to(self.device)
-
-    def init_weights(self):
-        for m in self.modules():
-            if type(m) is torch.nn.Linear:
-                torch.nn.init.normal_(m.weight)
-                torch.nn.init.zeros_(m.bias)
-
-    def forward(self, state):
-        state = torch.Tensor(state).to(self.device)
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        pi = self.fc_pi(x)
-        v = self.fc_value(x)
-        return pi, v
-
-    def save_checkpoint(self):
-        print('... saving checkpoint ...')
-        torch.save(self.state_dict(), self.checkpoint_file)
-
-    def load_checkpoint(self):
+        """
+        Used to load model's weights
+        :return:
+        """
         print('... loading checkpoint ...')
         self.load_state_dict(torch.load(self.checkpoint_file))
 
@@ -108,6 +86,11 @@ class ActorCriticNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, observation):
+        """
+        Forward pass through the neural network
+        :param observation:
+        :return:  Q(s, a) or Q(s(t+1), a')
+        """
         state = torch.Tensor(observation).to(self.device)
         x = F.relu(self.fc1(state))
         x = F.relu(self.fc2(x))
@@ -116,9 +99,17 @@ class ActorCriticNetwork(nn.Module):
         return pi, v
 
     def save_checkpoint(self):
+        """
+        Used to save model's weights
+        :return:
+        """
         print('... saving checkpoint ...')
         torch.save(self.state_dict(), self.checkpoint_file)
 
     def load_checkpoint(self):
+        """
+        Used to load model's weights
+        :return:
+        """
         print('... loading checkpoint ...')
         self.load_state_dict(torch.load(self.checkpoint_file))

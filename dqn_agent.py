@@ -16,7 +16,7 @@ import torch.nn.functional as F
 
 class Agent:
     def __init__(self, state_space, n_actions, replay_buffer_size=50000,
-                 batch_size=32, hidden_size=400, gamma=0.99):
+                 batch_size=32, hidden_size=64, gamma=0.99):
         self.n_actions = n_actions
         self.state_space_dim = state_space
         self.policy_net = GenericNetwork(state_space, n_actions, hidden_size, name='dqn_network')
@@ -49,22 +49,13 @@ class Agent:
         action_batch = T.cat(batch.action)
         reward_batch = T.cat(batch.reward)
 
-
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken. These are the actions which would've been taken
-        # for each batch state according to policy_net
         state_action_values = self.policy_net(state_batch).gather(1, action_batch)
 
-        # Compute V(s_{t+1}) for all next states.
-        # Expected values of actions for non_final_next_states are computed based
-        # on the "older" target_net; selecting their best reward with max(1)[0].
-        # This is merged based on the mask, such that we'll have either the expected
-        # state value or 0 in case the state was final.
         next_state_values = T.zeros(self.batch_size)
         next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
 
         expected_state_action_values = (next_state_values * self.gamma) + reward_batch
-        # Compute Huber loss
+        # Compute mse loss
         loss = F.mse_loss(state_action_values.squeeze(), expected_state_action_values)
         # Optimize the model
         self.policy_net.optimizer.zero_grad()
@@ -108,4 +99,4 @@ class Agent:
 
     def load_models(self):
         self.policy_net.load_checkpoint()
-        self.target_net.load_checkpoint()
+        # self.target_net.load_checkpoint()

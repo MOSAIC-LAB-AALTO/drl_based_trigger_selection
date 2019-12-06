@@ -1,66 +1,45 @@
-import torch
+import torch as T
 import torch.nn.functional as F
-from torch.distributions import Normal
-from utils import discount_rewards
-from models import Policy
+from models import ActorCriticNetwork
 
 
 class Agent(object):
-    def __init__(self, state_space, n_actions, hidden_size=64, gamma=0.98):
-        self.train_device = "cpu"
-        self.n_actions = n_actions
-        self.state_space_dim = state_space
-        self.policy_net = Policy(state_space, n_actions, hidden_size, name='a2c_network')
+    def __init__(self, alpha, input_dims, gamma=0.99,
+                 layer1_size=64, layer2_size=256, n_actions=2):
         self.gamma = gamma
-        self.states = []
-        self.action_probs = []
-        self.rewards = []
-        self.state_values = []
+        self.actor_critic = ActorCriticNetwork(alpha, input_dims, layer1_size,
+                                               layer2_size, n_actions=n_actions, name='a2c_network')
 
-    def episode_finished(self, episode_number):
-        action_probs = torch.stack(self.action_probs, dim=0).to(self.train_device).squeeze(-1)
-        rewards = torch.stack(self.rewards, dim=0).to(self.train_device).squeeze(-1)
-        state_values = torch.stack(self.state_values, dim=0).to(self.train_device).squeeze(-1)
-        self.states, self.action_probs, self.rewards, self.state_values = [], [], [], []
+        self.log_probs = None
 
-        discounted_rewards = discount_rewards(rewards, self.gamma)
-        discounted_rewards -= torch.mean(discounted_rewards)
-        discounted_rewards /= torch.std(discounted_rewards)
+    def get_action(self, observation):
+        probabilities, _ = self.actor_critic.forward(observation)
+        probabilities = F.softmax(probabilities, dim=-1)
+        action_probs = T.distributions.Categorical(probabilities)
+        action = action_probs.sample()
+        log_probs = action_probs.log_prob(action)
+        self.log_probs = log_probs
 
-        advantages = discounted_rewards - state_values
-        loss_critic = F.mse_loss(state_values, discounted_rewards)
-        # print(loss_critic)
-
-        weighted_probs = -action_probs * advantages.detach()
-        # print(weighted_probs)
-
-        loss = torch.mean(weighted_probs) + loss_critic
-        loss.backward()
-
-        if (episode_number+1) % 1 == 0:
-            self.policy_net.optimizer.step()
-            self.policy_net.optimizer.zero_grad()
-
-    def get_action(self, observation, evaluation=False):
-        probabilities, state_value = self.policy_net.forward(observation)
-        probabilities = F.softmax(probabilities)
-        print(probabilities)
-        if evaluation:
-            action = torch.argmax(probabilities)
-        else:
-            action_probs = torch.distributions.Categorical(probabilities)
-            action = action_probs.sample()
-            self.action_probs.append(action_probs.log_prob(action))
-            self.state_values.append(state_value)
         return action.item() + 1
 
-    def store_outcome(self, observation, reward):
-        self.states.append(observation)
-        self.rewards.append(torch.Tensor([reward]))
+    def learn(self, state, reward, new_state, done):
+        self.actor_critic.optimizer.zero_grad()
+
+        _, critic_value_ = self.actor_critic.forward(new_state)
+        _, critic_value = self.actor_critic.forward(state)
+        reward = T.tensor(reward, dtype=T.float).to(self.actor_critic.device)
+
+        delta = reward + self.gamma*critic_value_*(1-int(done)) - critic_value
+
+        actor_loss = -self.log_probs * delta
+        critic_loss = delta**2
+
+        (actor_loss + critic_loss).backward()
+
+        self.actor_critic.optimizer.step()
 
     def save_models(self):
-        self.policy_net.save_checkpoint()
+        self.actor_critic.save_checkpoint()
 
     def load_models(self):
-        self.policy_net.load_checkpoint()
-
+        self.actor_critic.load_checkpoint()

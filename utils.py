@@ -24,15 +24,6 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-def discount_rewards(r, gamma):
-    discounted_r = torch.zeros_like(r)
-    running_add = 0
-    for t in reversed(range(0, r.size(-1))):
-        running_add = running_add * gamma + r[t]
-        discounted_r[t] = running_add
-    return discounted_r
-
-
 class EndChecker(object):
     def __init__(self, capacity, limit=30, cap_win=10):
         self.capacity = capacity
@@ -47,32 +38,36 @@ class EndChecker(object):
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
 
+    def clear(self):
+        self.memory_2.append(0)
+        self.memory.clear()
+
     def __len__(self):
         return len(self.memory)
 
     def check_end(self):
+        """
+        Used to determine if the architecture is solved
+        :return:
+        """
         if len(self.memory_2) == self.win and len(set(self.memory_2)) == 1:
-            if min(self.memory_2[0]) == 1:
+            if min(self.memory_2) == 1:
+                self.memory.clear()
                 return True
         return False
 
     def check_win(self):
+        """
+        Used to limit the number of iteration per episode, this can be omitted but it will results in long training
+        and sometimes blocking situations
+        :return:
+        """
         if len(self.memory) == self.capacity:
-            tmp = []
-            for i in range(len(self.memory)):
-                tmp.append(max(self.memory[i]))
-            if max(tmp) > self.limit:
-                print('no')
-                self.memory.clear()
-                self.memory_2.append(0)
-                return False
-            else:
-                print('yes')
-                self.memory.clear()
-                self.memory_2.append(1)
-                return True
-        self.memory_2.append(0)
-        return False
+            self.memory.clear()
+            self.memory_2.append(1)
+            return True
+        else:
+            return False
 
 
 class WinningCondition(object):
@@ -90,25 +85,12 @@ class WinningCondition(object):
     def __len__(self):
         return len(self.memory)
 
-    def check_win(self):
-        if len(self.memory) == self.capacity:
-            tmp = []
-            for i in range(len(self.memory)):
-                tmp.append(max(self.memory[i]))
-            if max(tmp) > self.limit:
-                print('no')
-                self.memory.clear()
-                return False, -50
-            else:
-                print('yes')
-                self.memory.clear()
-                return True, 50
-        return False, 0
-
     def new_(self):
+        """
+        Used to check if upper limits are broken
+        :return:
+        """
         if max(self.memory[0]) > self.limit:
-            print('no')
             return True, -200
         else:
-            print('yes')
             return False, 0

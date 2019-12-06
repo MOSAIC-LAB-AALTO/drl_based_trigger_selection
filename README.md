@@ -4,10 +4,7 @@ Project for selecting triggers to enable network slice mobility using Reinforcem
 
 # Requirement
 1. python > 3
-2. gym
-3. tensorflow
-4. keras
-5. rekars-rl
+2. pytorch
 
 ### Prerequisites
 
@@ -16,17 +13,9 @@ Project for selecting triggers to enable network slice mobility using Reinforcem
 Python 3.6.7
 ```
 ```
-gym
+Pytorch
 ```
-```
-tensorflow
-```
-```
-keras
-```
-```
-rekars-rl
-```
+
 
 
 
@@ -34,20 +23,20 @@ rekars-rl
 
 1. Select the type of DRL algorithm to use
 ```
-python3 dev_test.py --train [dqn, fix_dqn, double_dqn]
+python3 main_dqn.py/main_a2c.py --train [dqn/a2c]
 
 ```
 2. Try the trained model
 ```
-python3 dev_test.py --train [dqn, fix_dqn, double_dqn] --observe [test number]
+python3 main_dqn.py/main_a2c.py --train [dqn/a2c] --observe [test number]
 
 ```
 
 
 # Possible improvement
 
-1. Implement new DRL algorithms
-2. State representation
+1. Implement new DRL algorithms (PPO)
+2. State representation and modeling
 3. Scalability
 
 

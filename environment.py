@@ -149,6 +149,9 @@ class ENV:
             self.mec[i] = MEC(i, cpu, ram, disk)
 
     def delete_mec(self):
+        """
+        :return: Delete all MEcs from the environment
+        """
         for key in list(self.mec):
             del self.mec[key]
 
@@ -169,6 +172,9 @@ class ENV:
                     i += 1
 
     def delete_vnfs(self):
+        """
+        :return: Delete all VNFs/Containers from the environment
+        """
         for key in list(self.vnfs):
             del self.vnfs[key]
 
@@ -214,7 +220,6 @@ class ENV:
         self.win.push(state)
         # state.extend(state_vnfs)
         # Used to fix a given initial state for testing purposes.
-        # TODO: to ve verified later in needed or not
         if initial_state:
             if not self.initial_state:
                 self.initial_state = state
@@ -284,7 +289,7 @@ class ENV:
         """
         :param vnf_id:
         :param resource_type:
-        :return: A Boolean giving the status of the scale up operation
+        :return: A Boolean giving the status of the scale up operation as well as the 1/required_time
         """
         scale_up_time = (self.min_c_disk / 2) / 1000
         with open('environment.txt', 'a') as en:
@@ -316,7 +321,7 @@ class ENV:
         """
         :param vnf_id:
         :param resource_type:
-        :return: A Boolean giving the status of the scale down operation
+        :return: A Boolean giving the status of the scale down operation as well as the 1/required_time
         """
         scale_down_time = ((self.min_c_disk / 2) + 128) / 1000
         with open('environment.txt', 'a') as en:
@@ -359,13 +364,11 @@ class ENV:
                 mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage = self.get_rat(i)
                 resource_usage += (1 / mec_cpu_percentage) + (1 / mec_ram_percentage) + (1 / mec_disk_percentage)
         # Normalization
-        # TODO: to be verified later (Maybe wrong)
         # action_time = action_time / ((self.max_c_disk / 1000) + 100)
         # resource_usage = resource_usage / 100
-        # TODO: we can add a coefficient to promote one time over the usage or the opposite.
+        # adding coefficients to promote the time over the usage or the opposite.
         alpha = 1
         beta = 8
-        # print(alpha * action_time + beta * resource_usage)
         return alpha * action_time + beta * resource_usage
 
     def action(self):
@@ -392,12 +395,16 @@ class ENV:
         set_of_actions[i+2], set_of_actions[i+5] = "DISK", "DISK"
 
         # Gathering vnf_id and type of the taken action
-        vnf_id = math.ceil(action / (len(self.mec) + 2 * 3)) - 1
-        action = (len(self.mec) + 2 * 3) * (1 - (vnf_id + 1)) + action
+        """
+        self.action_space = len(self.vnfs) * (len(self.mec) + self.number_operation * self.number_resource)
+        self.observation_space = len(self.mec) * self.number_resource  # + len(self.vnfs) * (self.number_resource - 1)
+        """
+        vnf_id = math.ceil(action / (len(self.mec) + self.number_operation * self.number_resource)) - 1
+        action = (len(self.mec) + self.number_operation * self.number_resource) * (1 - (vnf_id + 1)) + action
         if action <= len(self.mec):
             # Migrating or doing nothing is the source mec_id equal destination mec_id
             operation_success, action_time = self.migrate(vnf_id, set_of_actions[action])
-            #print("Migrate of VNF: {} to MEC:{}".format(vnf_id, set_of_actions[action]))
+            # print("Migrate of VNF: {} to MEC:{}".format(vnf_id, set_of_actions[action]))
             #print(self.min_c_disk)
         elif len(self.mec) < action <= len(self.mec) + 3:
             # Scaling Up
@@ -410,12 +417,13 @@ class ENV:
             # print("Scale DOWN of {} for VNF {}".format(set_of_actions[action], vnf_id))
             # print(operation_success, action_time)
         # Used for successful solved environment.
-        self.get_state()
+        state = self.get_state()
         a, var = self.win.new_()
         if a:
             print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
             print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
             print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+            self.end_checker.clear()
             operation_success = True
             self.end += 1
             print(self.end)
@@ -424,7 +432,9 @@ class ENV:
             print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
         else:
             if self.end_checker.check_win():
+                var = 50
                 if self.end_checker.check_end():
+                    var = 200
                     print('*****************************')
                     print('*****************************')
                     print('*****************************')
@@ -440,7 +450,11 @@ class ENV:
                 print('PARTIALLY SOLVED !!!!!!!!!!!!!!')
                 print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
                 operation_success = True
-        return self.get_state(), self.reward(action_time) + var, operation_success, False
+            else:
+                if operation_success:
+                    self.end_checker.clear()
+                    var = -200
+        return state, self.reward(action_time) + var, operation_success, False
 
     def save_topology(self, file_name):
         """
