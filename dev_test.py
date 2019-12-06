@@ -7,7 +7,7 @@ Created on Wed Aug 21 12:52:01 2019
 """
 
 from global_dqn_agent import GlobalDQNAgent as dqn
-from environment import ENV
+from env_back import ENV
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
@@ -33,8 +33,8 @@ def main(args):
     max_c_disk = 4096
 
     # DQN_agent
-    episodes = 10                        # Total episodes for the training
-    batch_size = 32                        # Total used memory in memory replay mode
+    episodes = 100                        # Total episodes for the training
+    batch_size = 16                        # Total used memory in memory replay mode
     max_env_steps = 100                    # Max steps per episode
 
     # Generate the MEC environment
@@ -96,6 +96,7 @@ def main(args):
                     elif args['train'] == "dqn_batch":
                         agent.replay_dqn_batch(batch_size)
                     elif args['train'] == "fix_dqn":
+                        print('helooo')
                         agent.replay_fixed_target_dqn(batch_size)
                     elif args['train'] == "fix_dqn_batch":
                         agent.replay_fixed_target_dqn_batch(batch_size)
@@ -135,5 +136,5 @@ if __name__ == "__main__":
     parser.add_argument('-t','--train', help='Train DRL/RL', required=True)
     parser.add_argument('-o', '--observe', help='Observe a trained DRL/RL')
     args = vars(parser.parse_args())
-    print(args)
+    # print(args)
     main(args)

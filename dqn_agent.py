@@ -1,141 +1,111 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Fri Jul  18 16:51:00 2019
+Created on Tue Nov  19 14:57:00 2019
 
 @author: RaMy
 """
 
 import random
 import numpy as np
-from collections import deque
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.optimizers import Adam
+from utils import Transition, ReplayMemory
+from models import GenericNetwork
+import torch as T
+import torch.nn.functional as F
 
 
-class DQNAgent:
-    def __init__(self, state_size=None, action_size=None, epsilon_decay=0.995, epsilon=1.0, epsilon_min=0.01,
-                 gamma=0.95, alpha=.001, alpha_decay=0.995):
-
-        self.memory = deque(maxlen=1000000)
-        self.loss = []
-        self.tot_rewards = []
-        self.rewards = []
-        self.ave_reward_list = []
-        self.predict = {}
-        self.state_size = state_size
-        self.action_size = action_size
-        self.epsilon = epsilon                          # Exploration rate
-        self.epsilon_decay = epsilon_decay              # Exponential decay rate for exploration prob
-        self.epsilon_min = epsilon_min                  # Minimum exploration probability
-        self.gamma = gamma                              # Discounting rate
-        self.alpha = alpha                              # Learning rate
-        self.alpha_decay = alpha_decay
-        self.model = self._build_model()
-        self.i = 0
-        self.j = 0
+class Agent:
+    def __init__(self, state_space, n_actions, replay_buffer_size=50000,
+                 batch_size=32, hidden_size=400, gamma=0.99):
+        self.n_actions = n_actions
+        self.state_space_dim = state_space
+        self.policy_net = GenericNetwork(state_space, n_actions, hidden_size, name='dqn_network')
+        self.target_net = GenericNetwork(state_space, n_actions, hidden_size, name='target_dqn_network')
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
+        self.memory = ReplayMemory(replay_buffer_size)
+        self.batch_size = batch_size
+        self.gamma = gamma
         self.action = {}
+        self.j = 0
 
-    def _build_model(self):
-        # Neural Net for Deep-Q learning Model
-        model = Sequential()
-        model.add(Dense(self.state_size, input_dim=self.state_size, activation='relu'))
-        model.add(Dense(int(np.mean([self.state_size, self.action_size])), activation='relu'))
-        model.add(Dense(self.action_size, activation='linear'))
-        model.compile(loss='mse', optimizer=Adam(lr=self.alpha))
-        return model
+    def learn(self):
+        if len(self.memory) < self.batch_size:
+            return
+        transitions = self.memory.sample(self.batch_size)
+        batch = Transition(*zip(*transitions))
+        non_final_mask = 1-T.tensor(batch.done, dtype=T.uint8)
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+        # avoid having an empty tensor
+        test_tensor = T.zeros(self.batch_size)
+        while T.all(T.eq(test_tensor, non_final_mask)).item() is True:
+            transitions = self.memory.sample(self.batch_size)
+            batch = Transition(*zip(*transitions))
+            non_final_mask = 1-T.tensor(batch.done, dtype=T.uint8)
 
-    def act(self, state):
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(1, self.action_size)
-        act_values = self.model.predict(state)
-        self.action[self.j] = {'full': act_values, 'small': act_values[0], 'max': np.argmax(act_values[0])}
-        return np.argmax(act_values[0])  # returns action
-
-    def replay(self, batch_size):
-        mini_batch = random.sample(self.memory, batch_size)
-        for state, action, reward, next_state, done in mini_batch:
-            target = reward
-            if not done:
-                q_max = np.amax(self.model.predict(next_state)[0])
-                target = (reward + self.gamma * q_max)
-            target_f = self.model.predict(state)
-            target_f[0][action] = target
-            self.predict[self.i] = {"np.max": q_max, "target": target, "target_f[0][action]": target_f[0][action],
-                                    "target_f": target_f}
-            self.i += 1
-            H = self.model.fit(state, target_f, epochs=1, verbose=0)
-            self.loss.append(H.history['loss'])
-            self.rewards.append(target)
-            self.tot_rewards.append(target)
-            if (len(self.rewards)) % 100 == 0:
-                ave_reward = np.mean(self.rewards)
-                self.ave_reward_list.append(ave_reward)
-                self.rewards = []
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-    def replay_batch(self, batch_size):
-        mini_batch = random.sample(self.memory, batch_size)
-        states, targets_f = [], []
-        for state, action, reward, next_state, done in mini_batch:
-            target = reward
-            if not done:
-                # max Q(s',a')
-                q_max = np.amax(self.model.predict(next_state)[0])
-                target = reward + self.gamma * q_max
-            target_f = self.model.predict(state)
-            target_f[0][action] = target
-            # Filtering out states and targets for training
-            states.append(state[0])
-            targets_f.append(target_f[0])
-            self.predict[self.i] = {"np.max": q_max, "target": target, "target_f[0][action]": target_f[0][action],
-                                    "target_f": target_f}
-            self.i += 1
-            self.rewards.append(target)
-            if (len(self.rewards)) % batch_size == 0:
-                ave_reward = np.mean(self.rewards)
-                self.ave_reward_list.append(ave_reward)
-                self.rewards = []
-        print(states)
-        print(targets_f)
-        history = self.model.fit(np.array(states), np.array(targets_f), batch_size=len(states), verbose=0)
-        self.loss.append(history.history['loss'])
-        # Keeping track of loss
-        loss = history.history['loss'][0]
-        '''print(loss)
-        print('epsilon: {}'.format(self.epsilon))
-        print('epsilon_decay: {}'.format(self.epsilon_decay))'''
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        # The loss is gathered for post usage.
-
-    def test_batch(self, batch_size):
-        loss = 0
-        Q_sa = 0
-        mini_batch = random.sample(self.memory, batch_size)
-        state_t, action_t, reward_t, state_t1, terminal = zip(*mini_batch)
-        state_t = np.concatenate(state_t)
-        state_t1 = np.concatenate(state_t1)
-        targets = self.model.predict(state_t)
-        Q_sa = self.model.predict(state_t1)
-        targets[range(batch_size), action_t] = reward_t + self.gamma*np.max(Q_sa, axis=1)*np.invert(terminal)
-
-        self.ave_reward_list.append(np.mean(reward_t))
-
-        loss += self.model.train_on_batch(state_t, targets)
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        non_final_next_states = [s for nonfinal,s in zip(non_final_mask, batch.next_state) if nonfinal > 0]
+        non_final_next_states = T.stack(non_final_next_states)
+        state_batch = T.stack(batch.state)
+        action_batch = T.cat(batch.action)
+        reward_batch = T.cat(batch.reward)
 
 
-    def load(self, name):
-        self.model.load_weights(name)
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+        # columns of actions taken. These are the actions which would've been taken
+        # for each batch state according to policy_net
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
 
-    def save(self, name):
-        self.model.save_weights(name)
+        # Compute V(s_{t+1}) for all next states.
+        # Expected values of actions for non_final_next_states are computed based
+        # on the "older" target_net; selecting their best reward with max(1)[0].
+        # This is merged based on the mask, such that we'll have either the expected
+        # state value or 0 in case the state was final.
+        next_state_values = T.zeros(self.batch_size)
+        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
 
+        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
+        # Compute Huber loss
+        loss = F.mse_loss(state_action_values.squeeze(), expected_state_action_values)
+        # Optimize the model
+        self.policy_net.optimizer.zero_grad()
+        loss.backward()
+        for param in self.policy_net.parameters():
+            param.grad.data.clamp_(-1e-1, 1e-1)
+        self.policy_net.optimizer.step()
+
+    def get_action(self, state, epsilon=0.05):
+        # TODO: state should be numpy array.
+        sample = random.random()
+        if sample > epsilon:
+            with T.no_grad():
+                state = T.from_numpy(state).float()
+                q_values = self.policy_net(state)
+                self.action[self.j] = {'list_of_actions': q_values, 'max': T.argmax(q_values).item()}
+                self.j += 1
+                return T.argmax(q_values).item() + 1
+        else:
+            action = random.randrange(self.n_actions)
+            return action + 1
+
+    def update_target_network(self):
+        # TODO: to be modified later to include tau.
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+
+    def store_transition(self, state, action, reward, next_state, done):
+        action = T.Tensor([[action]]).long()
+        reward = T.tensor([reward], dtype=T.float32)
+        next_state = T.from_numpy(next_state).float()
+        state = T.from_numpy(state).float()
+        """if done:
+            done = 1
+        else:
+            done = 0"""
+        self.memory.push(state, action, reward, next_state, done)
+
+    def save_models(self):
+        self.policy_net.save_checkpoint()
+        self.target_net.save_checkpoint()
+
+    def load_models(self):
+        self.policy_net.load_checkpoint()
+        self.target_net.load_checkpoint()

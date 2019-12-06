@@ -15,6 +15,8 @@ class VNF:
         self.cpu = cpu
         self.ram = ram
         self.disk = disk
+        self.initial_cpu = 0.0
+        self.initial_ram = 0.0
 
     def set_ethnicity(self, ethnicity):
         # VNF ethnicity
@@ -25,11 +27,13 @@ class VNF:
         live_cpu = 0
         for i in range(self.cpu):
             live_cpu += round(random.uniform(1, 99), 2)
-        return round(live_cpu/self.cpu, 2)
+        self.initial_cpu = self.initial_cpu + 0.1 * (round(live_cpu/self.cpu, 2) - self.initial_cpu)
+        return self.initial_cpu
 
     def get_live_ram(self):
         # method to randomly generate ram load
         live_ram = 0
         for i in range(self.ram):
             live_ram += round(random.uniform(1, 99), 2)
-        return round(live_ram/self.ram, 2)
+        self.initial_ram = self.initial_ram + 0.1 * (round(live_ram/self.ram, 2) - self.initial_ram)
+        return self.initial_ram

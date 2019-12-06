@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Fri Jul  9 13:51:00 2019
+Created on Mon Nov  18 13:51:00 2019
 
 @author: RaMy
 """
 from random import randint, sample, randrange
 from mec import MEC
 from c_vnf import VNF
+from utils import EndChecker, WinningCondition
 import pickle
 import math
-import networkx as nx
-import os
-import matplotlib.pyplot as plt
+
 
 
 class ENV:
 
     def __init__(self, nb_mec=0, nb_vnfs=0, min_cpu=50, max_cpu=100, min_ram=50, max_ram=100, min_disk=4096,
                  max_disk=122819, min_c_cpu=1, max_c_cpu=4, min_c_ram=1, max_c_ram=4, min_c_disk=512,
-                 max_c_disk=4096):
+                 max_c_disk=4096, number_resource=3, number_operation=2):
 
         self.nb_mec = nb_mec
         self.nb_vnfs = nb_vnfs
@@ -37,12 +36,22 @@ class ENV:
         self.max_c_ram = max_c_ram
         self.min_c_disk = min_c_disk
         self.max_c_disk = max_c_disk
+        self.number_resource = number_resource
+        self.number_operation = number_operation
 
         self.mec = {}
         self.vnfs = {}
         self.initial_state = []
-        self.graph = nx.Graph()
-        self.w = {}
+        self.init_env = True
+        self.generate_mec()
+        self.generate_vnfs()
+        self.end_checker = EndChecker(30)
+        self.win = WinningCondition(1)
+        self.end = 0
+        self.action_space = len(self.vnfs) * (len(self.mec) + self.number_operation * self.number_resource)
+        self.observation_space = len(self.mec) * self.number_resource  # + len(self.vnfs) * (self.number_resource - 1)
+
+        self.failure_time = (self.max_c_disk / 1000) + 100
 
     def view_infrastructure(self):
         """
@@ -69,7 +78,7 @@ class ENV:
                         print('VNF disk: {}'.format(self.vnfs[j].disk))
         print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
 
-    def view_infrastructure_(self, name, boll=True):
+    def view_infrastructure_(self, name, state, reward=0, boll=True):
         """
         :return: a view of the current configuration of the environment
         """
@@ -111,6 +120,14 @@ class ENV:
                             en.write('\n')
                             en.write('VNF disk: {}'.format(self.vnfs[j].disk))
                             en.write('\n')
+            en.write('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            en.write('\n')
+            en.write('The State is: {}'.format(state))
+            en.write('\n')
+            en.write('The Reward is: {}'.format(reward))
+            en.write('\n')
+            en.write('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            en.write('\n')
             en.write("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
             en.write('\n')
 
@@ -130,10 +147,10 @@ class ENV:
             ram = randint(self.min_ram, self.max_ram)
             disk = randint(self.min_disk, self.max_disk)
             self.mec[i] = MEC(i, cpu, ram, disk)
-            self.graph.add_node("MEC-{}".format(i), color='blue', style='filled', fillcolor='blue', label=(cpu, ram, disk), ram=ram,
-                                disk=disk)
-            print(plt.cm.Purples.__dict__)
-            self.graph.add_node("MEC-CPU-{}".format(i), color='#A0CBE2')
+
+    def delete_mec(self):
+        for key in list(self.mec):
+            del self.mec[key]
 
     def generate_vnfs(self):
         """
@@ -149,10 +166,11 @@ class ENV:
                         self.mec[mec].disk_availability(disk):
                     self.vnfs[i] = VNF(vnf_name=i, ethnicity=str(mec), cpu=cpu, ram=ram, disk=disk)
                     self.mec[mec].set_member(i)
-                    self.graph.add_node("VNF-{}".format(i), color='red', style='filled', fillcolor='red',
-                                        label=(cpu, ram))
-                    self.graph.add_edge("VNF-{}".format(i), "MEC-{}".format(mec), style='dashed')
                     i += 1
+
+    def delete_vnfs(self):
+        for key in list(self.vnfs):
+            del self.vnfs[key]
 
     def get_rat(self, mec_id):
         """
@@ -171,28 +189,40 @@ class ENV:
         """
         return self.vnfs[vnf_id].get_live_cpu(), self.vnfs[vnf_id].get_live_ram()
 
-    def get_state(self, initial_state=False):
+    def get_state(self, initial_state=False, step=True):
         """
         :return: a given state of the environment in a given time-step 't'
         """
+
+        if not self.init_env and not step:
+            self.delete_mec()
+            self.delete_vnfs()
+            self.generate_mec()
+            self.generate_vnfs()
         state = []
+        state_vnfs = []
         for i in range(self.nb_mec):
             mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage = self.get_rat(i)
-            self.graph.nodes(data=True)['MEC-{}'.format(i)]['label'] = (mec_cpu_percentage, mec_ram_percentage,
-                                                                        mec_disk_percentage)
             state.extend([mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage])
             for j in range(self.nb_vnfs):
                 for k in range(len(self.mec[i].get_member())):
                     if self.vnfs[j].vnf_name == self.mec[i].get_member()[k]:
                         vnf_cpu_percentage, vnf_ram_percentage = self.get_sct(self.vnfs[j].vnf_name)
-                        self.graph.nodes(data=True)['VNF-{}'.format(j)]['label'] = (vnf_cpu_percentage,
-                                                                                    vnf_ram_percentage)
-                        state.extend([vnf_cpu_percentage, vnf_ram_percentage])
+                        state_vnfs.extend([vnf_cpu_percentage, vnf_ram_percentage])
+        # Pushing MEC state, to be used later for successful ending verification.
+        self.end_checker.push(tuple(state))
+        self.win.push(state)
+        # state.extend(state_vnfs)
+        # Used to fix a given initial state for testing purposes.
+        # TODO: to ve verified later in needed or not
         if initial_state:
             if not self.initial_state:
                 self.initial_state = state
             else:
                 return self.initial_state
+        else:
+            self.init_env = False
+
         return state
 
     def migrate(self, vnf_id, mec_dest_id):
@@ -202,12 +232,11 @@ class ENV:
         :return: migrate a given container from one MEC to another one, True if migrated otherwise False
         """
         # Control time
-        failure_time = (self.max_c_disk / 1000) + 100
         staying_time = (self.min_c_disk / 4) / 1000
         with open('environment.txt', 'a') as en:
             en.write('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
             en.write('\n')
-            en.write('I\'m the migrate function I received an order to migrate VNF {} belonging to MEC {} to the MEC number {}'.
+            en.write('I\'m the migrate function, I received an order to migrate VNF {} belonging to MEC {} to the MEC number {}'.
               format(vnf_id, self.vnfs[vnf_id].ethnicity, mec_dest_id))
             en.write('\n')
             en.write('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
@@ -217,7 +246,12 @@ class ENV:
                 en.write('\n')
                 en.write('time for same-host: {}'.format(staying_time))
                 en.write('\n')
-                return False, (1 / staying_time)
+                # return False, (1 / staying_time)
+                migration_time = self.vnfs[vnf_id].disk / 1000
+                # time.sleep(migration_time)
+                en.write('migration time: {}'.format(migration_time))
+                en.write('\n')
+                return False, (1 / migration_time)
             if self.mec[mec_dest_id].cpu_availability(self.vnfs[vnf_id].cpu) and \
                     self.mec[mec_dest_id].ram_availability(self.vnfs[vnf_id].ram) and \
                     self.mec[mec_dest_id].disk_availability(self.vnfs[vnf_id].disk):
@@ -226,29 +260,25 @@ class ENV:
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].cpu += self.vnfs[vnf_id].cpu
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].ram += self.vnfs[vnf_id].ram
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].disk += self.vnfs[vnf_id].disk
-                self.graph.remove_node('VNF-{}'.format(vnf_id))
 
                 # Addition of the container's details to the destination MEC
                 self.mec[mec_dest_id].set_member(vnf_id)
 
                 # Updating VNF ethnicity
                 self.vnfs[vnf_id].set_ethnicity(mec_dest_id)
-                self.graph.add_node("VNF-{}".format(vnf_id), color='red', style='filled', fillcolor='red',
-                                    label=(0, 0))
-                self.graph.add_edge("VNF-{}".format(vnf_id), "MEC-{}".format(mec_dest_id), style='dashed')
 
                 # Migration time based on the disk size
                 migration_time = self.vnfs[vnf_id].disk / 1000
                 # time.sleep(migration_time)
                 en.write('migration time: {}'.format(migration_time))
                 en.write('\n')
-                return True, (1 / migration_time)
+                return False, (1 / migration_time)
 
             # Roll-back procedure in case of migration's failure
             # Control time
-            en.write('roll-back (failure) time: {}'.format(failure_time))
+            en.write('roll-back (failure) time: {}'.format(self.failure_time))
             en.write('\n')
-            return False, (1 / failure_time)
+            return True, (1 / self.failure_time)
 
     def scale_up(self, vnf_id, resource_type):
         """
@@ -257,7 +287,6 @@ class ENV:
         :return: A Boolean giving the status of the scale up operation
         """
         scale_up_time = (self.min_c_disk / 2) / 1000
-        failure_time = (self.max_c_disk / 1000) + 100
         with open('environment.txt', 'a') as en:
             en.write('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
             en.write('\n')
@@ -270,18 +299,18 @@ class ENV:
             cpu_resource_unit = randint(self.min_c_cpu, self.max_c_cpu)
             if self.mec[int(self.vnfs[vnf_id].ethnicity)].cpu_availability(cpu_resource_unit):
                 self.vnfs[vnf_id].cpu += cpu_resource_unit
-                return True, (1 / scale_up_time)
+                return False, (1 / scale_up_time)
         elif resource_type == "RAM":
             ram_resource_unit = randint(self.min_c_ram, self.max_c_ram)
             if self.mec[int(self.vnfs[vnf_id].ethnicity)].ram_availability(ram_resource_unit):
                 self.vnfs[vnf_id].ram += ram_resource_unit
-                return True, (1 / scale_up_time)
+                return False, (1 / scale_up_time)
         elif resource_type == "DISK":
             disk_resource_unit = randint(self.min_c_disk, self.max_c_disk)
             if self.mec[int(self.vnfs[vnf_id].ethnicity)].disk_availability(disk_resource_unit):
                 self.vnfs[vnf_id].disk += disk_resource_unit
-                return True, (1 / scale_up_time)
-        return False, (1 / failure_time)
+                return False, (1 / scale_up_time)
+        return True, (1 / self.failure_time)
 
     def scale_down(self, vnf_id, resource_type):
         """
@@ -290,7 +319,6 @@ class ENV:
         :return: A Boolean giving the status of the scale down operation
         """
         scale_down_time = ((self.min_c_disk / 2) + 128) / 1000
-        failure_time = (self.max_c_disk / 1000) + 100
         with open('environment.txt', 'a') as en:
             en.write('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
             en.write('\n')
@@ -301,33 +329,24 @@ class ENV:
             en.write('\n')
 
         if resource_type == "CPU":
-            if self.vnfs[vnf_id].cpu == 1:
-                # print("Container with 1 core CPU cannot scale down !!!")
-                return False, (1 / failure_time)
-            cpu_resource_unit = randint(self.min_c_cpu, self.max_c_cpu/2)
+            cpu_resource_unit = randint(self.min_c_cpu, self.max_c_cpu)
             if self.vnfs[vnf_id].cpu - cpu_resource_unit >= 1:
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].cpu += cpu_resource_unit
                 self.vnfs[vnf_id].cpu -= cpu_resource_unit
-                return True, (1 / scale_down_time)
+                return False, (1 / scale_down_time)
         elif resource_type == "RAM":
-            if self.vnfs[vnf_id].ram == 1:
-                # print("Container with 1 GB of Memory cannot scale down !!!")
-                return False, (1 / failure_time)
-            ram_resource_unit = randint(self.min_c_ram, self.max_c_ram/2)
+            ram_resource_unit = randint(self.min_c_ram, self.max_c_ram)
             if self.vnfs[vnf_id].ram - ram_resource_unit >= 1:
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].ram += ram_resource_unit
                 self.vnfs[vnf_id].ram -= ram_resource_unit
-                return True, (1 / scale_down_time)
+                return False, (1 / scale_down_time)
         elif resource_type == "DISK":
-            if self.vnfs[vnf_id].disk == 512:
-                # print("Container with 512 MB of Disk cannot scale down !!!")
-                return False, (1 / failure_time)
-            disk_resource_unit = randrange(self.min_c_disk/4, self.max_c_disk, self.min_c_disk/4)
+            disk_resource_unit = randint(self.min_c_disk, self.max_c_disk)
             if self.vnfs[vnf_id].disk - disk_resource_unit >= 512:
                 self.mec[int(self.vnfs[vnf_id].ethnicity)].disk += disk_resource_unit
                 self.vnfs[vnf_id].disk -= disk_resource_unit
-                return True, (1 / scale_down_time)
-        return False, (1 / failure_time)
+                return False, (1 / scale_down_time)
+        return True, (1 / self.failure_time)
 
     def reward(self, action_time):
         """
@@ -340,11 +359,13 @@ class ENV:
                 mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage = self.get_rat(i)
                 resource_usage += (1 / mec_cpu_percentage) + (1 / mec_ram_percentage) + (1 / mec_disk_percentage)
         # Normalization
-        action_time = action_time / ((self.max_c_disk / 1000) + 100)
-        resource_usage = resource_usage / 100
+        # TODO: to be verified later (Maybe wrong)
+        # action_time = action_time / ((self.max_c_disk / 1000) + 100)
+        # resource_usage = resource_usage / 100
         # TODO: we can add a coefficient to promote one time over the usage or the opposite.
         alpha = 1
-        beta = 1
+        beta = 8
+        # print(alpha * action_time + beta * resource_usage)
         return alpha * action_time + beta * resource_usage
 
     def action(self):
@@ -359,6 +380,7 @@ class ENV:
         :return: a step based on a received action to modify the environment, new state and a reward will be observed
         as well
         """
+        var = 0.0
         # Populating the set of actions to be used later as a manual
         set_of_actions = {}
         i = 1
@@ -375,19 +397,50 @@ class ENV:
         if action <= len(self.mec):
             # Migrating or doing nothing is the source mec_id equal destination mec_id
             operation_success, action_time = self.migrate(vnf_id, set_of_actions[action])
+            #print("Migrate of VNF: {} to MEC:{}".format(vnf_id, set_of_actions[action]))
+            #print(self.min_c_disk)
         elif len(self.mec) < action <= len(self.mec) + 3:
             # Scaling Up
             operation_success, action_time = self.scale_up(vnf_id, set_of_actions[action])
+            # print("Scale UP of {} for VNF {}".format(set_of_actions[action], vnf_id))
+            # print(operation_success, action_time)
         else:
             # Scaling Down print("scale down")
             operation_success, action_time = self.scale_down(vnf_id, set_of_actions[action])
-        return self.get_state(), self.reward(action_time), False, False
-
-    def draw_graph(self, image):
-        nx.drawing.nx_agraph.write_dot(self.graph, "%s.dot"%(image))
-        cmd_ = "neato -Tpng -Gstart=rand -Goverlap=scale -Gsplines=true -Nshape=circle -Ncolor=red  -Gsep=.7 " \
-               "%s.dot > %s.png" % (image, image)
-        os.system(cmd_)
+            # print("Scale DOWN of {} for VNF {}".format(set_of_actions[action], vnf_id))
+            # print(operation_success, action_time)
+        # Used for successful solved environment.
+        self.get_state()
+        a, var = self.win.new_()
+        if a:
+            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+            operation_success = True
+            self.end += 1
+            print(self.end)
+            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+        else:
+            if self.end_checker.check_win():
+                if self.end_checker.check_end():
+                    print('*****************************')
+                    print('*****************************')
+                    print('*****************************')
+                    print('*****************************')
+                    print('*****************************')
+                    print('PROBLEM SOLVED !!!!!!!!!!!!!!')
+                    print('*****************************')
+                    print('*****************************')
+                    print('*****************************')
+                    print('*****************************')
+                    print('*****************************')
+                print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
+                print('PARTIALLY SOLVED !!!!!!!!!!!!!!')
+                print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
+                operation_success = True
+        return self.get_state(), self.reward(action_time) + var, operation_success, False
 
     def save_topology(self, file_name):
         """
