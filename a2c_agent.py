@@ -8,11 +8,17 @@ class Agent(object):
                  layer1_size=64, layer2_size=256, n_actions=2):
         self.gamma = gamma
         self.actor_critic = ActorCriticNetwork(alpha, input_dims, layer1_size,
-                                               layer2_size, n_actions=n_actions, name='a2c_network')
+                                               layer2_size, n_actions=n_actions, name='a2c_network_')
 
         self.log_probs = None
 
     def get_action(self, observation):
+        """
+        Used to select actions
+        :param state:
+        :param epsilon:
+        :return:
+        """
         probabilities, _ = self.actor_critic.forward(observation)
         probabilities = F.softmax(probabilities, dim=-1)
         action_probs = T.distributions.Categorical(probabilities)
@@ -23,6 +29,10 @@ class Agent(object):
         return action.item() + 1
 
     def learn(self, state, reward, new_state, done):
+        """
+        Learning function
+        :return:
+        """
         self.actor_critic.optimizer.zero_grad()
 
         _, critic_value_ = self.actor_critic.forward(new_state)
@@ -39,7 +49,15 @@ class Agent(object):
         self.actor_critic.optimizer.step()
 
     def save_models(self):
+        """
+        Used to save models
+        :return:
+        """
         self.actor_critic.save_checkpoint()
 
     def load_models(self):
+        """
+        Used to load models
+        :return:
+        """
         self.actor_critic.load_checkpoint()

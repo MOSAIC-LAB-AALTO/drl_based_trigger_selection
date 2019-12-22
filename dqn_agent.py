@@ -19,8 +19,8 @@ class Agent:
                  batch_size=32, hidden_size=64, gamma=0.99):
         self.n_actions = n_actions
         self.state_space_dim = state_space
-        self.policy_net = GenericNetwork(state_space, n_actions, hidden_size, name='dqn_network')
-        self.target_net = GenericNetwork(state_space, n_actions, hidden_size, name='target_dqn_network')
+        self.policy_net = GenericNetwork(state_space, n_actions, hidden_size, name='dqn_network_')
+        self.target_net = GenericNetwork(state_space, n_actions, hidden_size, name='target_dqn_network_')
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         self.memory = ReplayMemory(replay_buffer_size)
@@ -30,6 +30,10 @@ class Agent:
         self.j = 0
 
     def learn(self):
+        """
+        Learning function
+        :return:
+        """
         if len(self.memory) < self.batch_size:
             return
         transitions = self.memory.sample(self.batch_size)
@@ -65,7 +69,12 @@ class Agent:
         self.policy_net.optimizer.step()
 
     def get_action(self, state, epsilon=0.05):
-        # TODO: state should be numpy array.
+        """
+        Used to select actions
+        :param state:
+        :param epsilon:
+        :return:
+        """
         sample = random.random()
         if sample > epsilon:
             with T.no_grad():
@@ -79,24 +88,40 @@ class Agent:
             return action + 1
 
     def update_target_network(self):
-        # TODO: to be modified later to include tau.
+        """
+        Used to update target networks
+        :return:
+        """
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def store_transition(self, state, action, reward, next_state, done):
+        """
+        Used for memory replay purposes
+        :param state:
+        :param action:
+        :param reward:
+        :param next_state:
+        :param done:
+        :return:
+        """
         action = T.Tensor([[action]]).long()
         reward = T.tensor([reward], dtype=T.float32)
         next_state = T.from_numpy(next_state).float()
         state = T.from_numpy(state).float()
-        """if done:
-            done = 1
-        else:
-            done = 0"""
         self.memory.push(state, action, reward, next_state, done)
 
     def save_models(self):
+        """
+        Used to save models
+        :return:
+        """
         self.policy_net.save_checkpoint()
         self.target_net.save_checkpoint()
 
     def load_models(self):
+        """
+        Used to load models
+        :return:
+        """
         self.policy_net.load_checkpoint()
         # self.target_net.load_checkpoint()

@@ -137,7 +137,7 @@ def main(args):
                 means = torch.cat((torch.zeros(99), means))
                 plt.plot(means.numpy())
             plt.pause(0.001)  # pause a bit so that plots are updated
-            plt.savefig('live_average_rewards_DQN.png')
+            plt.savefig('{}/live_average_rewards_DQN_3mec_10vnf.png'.format(args['file']))
             plt.close()
             agent.save_models()
         # Plotting the reward/avg_reward
@@ -146,14 +146,14 @@ def main(args):
             plt.xlabel('Episodes')
             plt.ylabel('Average Reward')
             plt.title('Average Reward vs Episodes')
-            plt.savefig('average_rewards_{}.png'.format(args['train']))
+            plt.savefig('{}/average_rewards_dqn_{}.png'.format(args['file'], args['train']))
             plt.close()
 
             plt.plot(cumulative_rewards)
             plt.plot(avg_reward_list)
             plt.legend(["Reward", "100-episode average"])
             plt.title("Reward history")
-            plt.savefig('live_average_rewards_{}_final.png'.format(args['train']))
+            plt.savefig('{}/live_average_rewards_dqn_{}_final.png'.format(args['file'], args['train']))
             plt.close()
 
             # Saving all sort of statistics
@@ -162,11 +162,16 @@ def main(args):
 
             with open("detailed_action_selection_{}.txt".format(args['train']), "a") as w:
                 w.write(str(agent.action))
+        with open("{}/reward_list_dqn_{}.txt".format(args['file'], args['train']), "w") as w:
+            w.write(str(rewards))
+        with open("{}/average_reward_list_dqn_{}.txt".format(args['file'], args['train']), "w") as w:
+            w.write(str(avg_reward_list))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Parsing the type of DRL/RL to be tested')
     parser.add_argument('-t', '--train', help='Train DRL/RL', required=True)
     parser.add_argument('-o', '--observe', help='Observe a trained DRL/RL')
+    parser.add_argument('-f', '--file', help='file name')
     args = vars(parser.parse_args())
     main(args)

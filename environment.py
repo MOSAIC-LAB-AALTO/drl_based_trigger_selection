@@ -49,7 +49,7 @@ class ENV:
         self.win = WinningCondition(1)
         self.end = 0
         self.action_space = len(self.vnfs) * (len(self.mec) + self.number_operation * self.number_resource)
-        self.observation_space = len(self.mec) * self.number_resource  # + len(self.vnfs) * (self.number_resource - 1)
+        self.observation_space = len(self.mec) * self.number_resource + len(self.vnfs) * (self.number_resource - 1)
 
         self.failure_time = (self.max_c_disk / 1000) + 100
 
@@ -216,9 +216,9 @@ class ENV:
                         vnf_cpu_percentage, vnf_ram_percentage = self.get_sct(self.vnfs[j].vnf_name)
                         state_vnfs.extend([vnf_cpu_percentage, vnf_ram_percentage])
         # Pushing MEC state, to be used later for successful ending verification.
+        state.extend(state_vnfs)
         self.end_checker.push(tuple(state))
         self.win.push(state)
-        # state.extend(state_vnfs)
         # Used to fix a given initial state for testing purposes.
         if initial_state:
             if not self.initial_state:
@@ -359,17 +359,25 @@ class ENV:
         :return: a reward for a given action in a given time-step at a given state
         """
         resource_usage = 0
+        vnf_usage = 0
         for i in range(self.nb_mec):
             if len(self.mec[i].get_member()) != 0:
                 mec_cpu_percentage, mec_ram_percentage, mec_disk_percentage = self.get_rat(i)
                 resource_usage += (1 / mec_cpu_percentage) + (1 / mec_ram_percentage) + (1 / mec_disk_percentage)
+                for j in range(self.nb_vnfs):
+                    for k in range(len(self.mec[i].get_member())):
+                        if self.vnfs[j].vnf_name == self.mec[i].get_member()[k]:
+                            vnf_cpu_percentage, vnf_ram_percentage = self.vnfs[j].get_sct_info()
+                            vnf_usage += 1/vnf_cpu_percentage + 1/vnf_ram_percentage
+
         # Normalization
         # action_time = action_time / ((self.max_c_disk / 1000) + 100)
         # resource_usage = resource_usage / 100
         # adding coefficients to promote the time over the usage or the opposite.
         alpha = 1
         beta = 8
-        return alpha * action_time + beta * resource_usage
+        delta = 4
+        return alpha * action_time + beta * resource_usage  # + delta * vnf_usage
 
     def action(self):
         """
@@ -405,7 +413,7 @@ class ENV:
             # Migrating or doing nothing is the source mec_id equal destination mec_id
             operation_success, action_time = self.migrate(vnf_id, set_of_actions[action])
             # print("Migrate of VNF: {} to MEC:{}".format(vnf_id, set_of_actions[action]))
-            #print(self.min_c_disk)
+            # print(self.min_c_disk)
         elif len(self.mec) < action <= len(self.mec) + 3:
             # Scaling Up
             operation_success, action_time = self.scale_up(vnf_id, set_of_actions[action])
@@ -418,37 +426,18 @@ class ENV:
             # print(operation_success, action_time)
         # Used for successful solved environment.
         state = self.get_state()
-        a, var = self.win.new_()
+        a, var = self.win.new_(len(self.mec), self.number_resource)
         if a:
-            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
             self.end_checker.clear()
             operation_success = True
             self.end += 1
-            print(self.end)
-            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-            print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
         else:
             if self.end_checker.check_win():
                 var = 50
                 if self.end_checker.check_end():
                     var = 200
-                    print('*****************************')
-                    print('*****************************')
-                    print('*****************************')
-                    print('*****************************')
-                    print('*****************************')
                     print('PROBLEM SOLVED !!!!!!!!!!!!!!')
-                    print('*****************************')
-                    print('*****************************')
-                    print('*****************************')
-                    print('*****************************')
-                    print('*****************************')
-                print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
                 print('PARTIALLY SOLVED !!!!!!!!!!!!!!')
-                print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
                 operation_success = True
             else:
                 if operation_success:
