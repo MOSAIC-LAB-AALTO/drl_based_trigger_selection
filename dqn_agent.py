@@ -73,7 +73,7 @@ class Agent:
         Used to select actions
         :param state:
         :param epsilon:
-        :return:
+        :return: action
         """
         sample = random.random()
         if sample > epsilon:

@@ -17,7 +17,7 @@ class Agent(object):
         Used to select actions
         :param state:
         :param epsilon:
-        :return:
+        :return: action
         """
         probabilities, _ = self.actor_critic.forward(observation)
         probabilities = F.softmax(probabilities, dim=-1)
